@@ -1,12 +1,11 @@
-use core::{array, fmt, marker::PhantomData, ptr::NonNull};
+use core::{array, fmt};
 
-use darwin_kperf_sys::{kperf::KPC_MAX_COUNTERS, kperfdata::kpep_config};
+use darwin_kperf_sys::{kperf::KPC_MAX_COUNTERS};
 
 use super::{
-    Sampler,
     error::{SamplerError, try_kpc},
 };
-use crate::utils::DropGuard;
+use crate::{sampler::ll::LLSampler, utils::DropGuard};
 
 /// Per-thread performance counter reader.
 ///
@@ -21,30 +20,14 @@ use crate::utils::DropGuard;
 /// used on the thread that created it, which is why it is `!Send + !Sync`.
 pub struct ThreadSampler<'sampler, const N: usize> {
     running: bool,
-
-    sampler: &'sampler Sampler,
-    config: NonNull<kpep_config>,
-
-    classes: u32,
-    counter_map: [usize; N],
-
-    _marker: PhantomData<*mut ()>,
+    inner: LLSampler<'sampler, N>,
 }
 
 impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
-    pub(crate) const fn new(
-        sampler: &'sampler Sampler,
-        config: NonNull<kpep_config>,
-        classes: u32,
-        counter_map: [usize; N],
-    ) -> Self {
+    pub(crate) const fn new(sampler: LLSampler<'sampler, N>) -> Self {
         Self {
             running: false,
-            sampler,
-            config,
-            classes,
-            counter_map,
-            _marker: PhantomData,
+            inner: sampler,
         }
     }
 
@@ -66,12 +49,12 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
             return Ok(());
         }
 
-        let kpc_vt = self.sampler.kperf.vtable();
+        let kpc_vt = self.inner.sampler.kperf.vtable();
 
         try_kpc(
             // SAFETY: kpc_set_counting is a sysctl write; classes was obtained from
             // a valid kpep_config. Passing 0 on failure is always safe.
-            unsafe { (kpc_vt.kpc_set_counting)(self.classes) },
+            unsafe { (kpc_vt.kpc_set_counting)(self.inner.classes) },
             SamplerError::UnableToStartCounting,
         )?;
 
@@ -83,7 +66,7 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
 
         try_kpc(
             // SAFETY: same as kpc_set_counting, sysctl write with valid classes.
-            unsafe { (kpc_vt.kpc_set_thread_counting)(self.classes) },
+            unsafe { (kpc_vt.kpc_set_thread_counting)(self.inner.classes) },
             SamplerError::UnableToStartThreadCounting,
         )?;
 
@@ -116,7 +99,7 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
             return Err(SamplerError::SamplerNotRunning);
         }
 
-        let kpc_vt = self.sampler.kperf.vtable();
+        let kpc_vt = self.inner.sampler.kperf.vtable();
         let mut counters = [0; KPC_MAX_COUNTERS];
 
         try_kpc(
@@ -129,7 +112,7 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
         )?;
 
         let output = array::from_fn(|index| {
-            let counter_index = self.counter_map[index];
+            let counter_index = self.inner.counter_map[index];
             counters[counter_index]
         });
 
@@ -149,7 +132,7 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
             return Ok(());
         }
 
-        let kpc_vt = self.sampler.kperf.vtable();
+        let kpc_vt = self.inner.sampler.kperf.vtable();
 
         // Reverse order of start: thread counting first, then counting.
         // SAFETY: passing 0 to disable counting is always safe.
@@ -173,12 +156,12 @@ impl<const N: usize> Drop for ThreadSampler<'_, N> {
     fn drop(&mut self) {
         let _result = self.stop();
 
-        let kpep_vt = self.sampler.kperfdata.vtable();
+        let kpep_vt = self.inner.sampler.kperfdata.vtable();
         // SAFETY: config was allocated by kpep_config_create in ll_start and
         // has not been freed. The kperfdata framework is still loaded because
         // we hold a reference to the Sampler which owns it.
         unsafe {
-            (kpep_vt.kpep_config_free)(self.config.as_ptr());
+            (kpep_vt.kpep_config_free)(self.inner.config.as_ptr());
         }
     }
 }
@@ -187,8 +170,8 @@ impl<const N: usize> fmt::Debug for ThreadSampler<'_, N> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ThreadSampler")
             .field("running", &self.running)
-            .field("classes", &self.classes)
-            .field("counter_map", &self.counter_map)
+            .field("classes", &self.inner.classes)
+            .field("counter_map", &self.inner.counter_map)
             .finish_non_exhaustive()
     }
 }

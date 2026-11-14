@@ -33,6 +33,24 @@ pub enum SamplerError {
     FailedToForceAllCounters(c_int),
     /// Failed to set KPC register configuration.
     FailedToSetKpcConfig(c_int),
+    /// Failed to set KPC action count.
+    FailedToSetActionCount(c_int),
+        /// Failed to set KPC timer count.
+    FailedToSetTimerCount(c_int),
+            /// Failed to set kperf action samplers.
+    FailedToSetSamplers(c_int),
+    FailedToSetTimerPeriod(c_int),
+    FailedToSetTimer(c_int),
+    FailedToSetPETTimer(c_int),
+    FailedToSetLightweightPET(c_int),
+    FailedToSetSample(c_int),
+    FailedToSetTrace(c_int),
+    FailedToSetTraceBuffer(c_int),
+    FailedToInitTraceBuffer(c_int),
+    FailedToSetTraceFilter(c_int),
+    FailedToEnableTrace(c_int),
+    // Failed to set the PID filter.
+    FailedToSetPIDFilter(c_int),
     /// Failed to enable counting.
     UnableToStartCounting(c_int),
     /// Failed to disable counting.

@@ -17,13 +17,14 @@
 pub(crate) mod error;
 mod ll;
 mod thread;
+mod pid;
 
 use core::{ffi::c_int, fmt, ptr::NonNull};
 
 use darwin_kperf_sys::kperfdata::kpep_db;
 
 use self::error::try_kpc;
-pub use self::{error::SamplerError, thread::ThreadSampler};
+pub use self::{error::SamplerError, thread::ThreadSampler, pid::PIDSampler};
 use crate::{
     database::Database,
     event::{Cpu, Event},
@@ -155,7 +156,23 @@ impl Sampler {
         &self,
         events: [Event; N],
     ) -> Result<ThreadSampler<'_, N>, SamplerError> {
-        self::ll::ll_configure(self, events)
+        let sampler = self::ll::ll_configure(self, events)?;
+        Ok(ThreadSampler::new(sampler))
+    }
+
+    /// Creates a [`PIDSampler`] configured for the given events and pid.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SamplerError`] if any event is unavailable on the current CPU
+    /// or if counter programming fails.
+    pub fn pid<const N: usize>(
+        &self,
+        events: [Event; N],
+        pid: u64,
+    ) -> Result<PIDSampler<'_, N>, SamplerError> {
+        let sampler = self::ll::ll_configure(self, events)?;
+        Ok(PIDSampler::new(sampler, pid))
     }
 }
 

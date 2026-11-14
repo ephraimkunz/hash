@@ -10,20 +10,31 @@ use core::{
     ffi::CStr,
     mem::MaybeUninit,
     ptr::{self, NonNull},
+    marker::PhantomData,
 };
 
 use darwin_kperf_sys::{
     kperf::{KPC_CLASS_CONFIGURABLE_MASK, KPC_MAX_COUNTERS, kpc_config_t},
-    kperfdata::{kpep_db, kpep_event},
+    kperfdata::{kpep_db, kpep_event, kpep_config},
 };
 
-use super::{Sampler, error::SamplerError, thread::ThreadSampler};
+use super::{Sampler, error::SamplerError};
 use crate::{
     KPerf, KPerfData,
     event::{Cpu, Event, EventInfo as _, ResolvedEvent},
     sampler::error::{try_kpc, try_kpep},
     utils::DropGuard,
 };
+
+/// A low-level sampler intended to be wrapped by a higher-level sampler returned to the 
+/// external user.
+pub(crate) struct LLSampler<'sampler, const N: usize> {
+    pub sampler: &'sampler Sampler,
+    pub config: NonNull<kpep_config>,
+    pub classes: u32,
+    pub counter_map: [usize; N],
+    _marker: PhantomData<*mut ()>,
+}
 
 /// Resolves an array of [`Event`]s to their CPU-specific
 /// [`ResolvedEvent`]s, failing if any event is unavailable.
@@ -43,15 +54,15 @@ fn resolve_array<const N: usize>(
     Ok(resolved.map(|value| unsafe { value.assume_init() }))
 }
 
-/// Creates a [`ThreadSampler`] configured for the given events.
+/// Creates a [`LLSampler`] configured for the given events.
 ///
 /// Resolves events, builds a KPEP config, extracts KPC register values,
-/// and programs the counters. The returned `ThreadSampler` owns the config
-/// and is ready for [`start`](ThreadSampler::start).
+/// and programs the counters. The returned `LLSampler` owns the config
+/// and is ready to be wrapped by a higher-level sampler.
 pub(crate) fn ll_configure<const N: usize>(
     sampler: &Sampler,
     events: [Event; N],
-) -> Result<ThreadSampler<'_, N>, SamplerError> {
+) -> Result<LLSampler<'_, N>, SamplerError> {
     let kpc_vt = sampler.kperf.vtable();
     let kpep_vt = sampler.kperfdata.vtable();
 
@@ -136,7 +147,7 @@ pub(crate) fn ll_configure<const N: usize>(
 
     let config = DropGuard::dismiss(config);
 
-    Ok(ThreadSampler::new(sampler, config, classes, counter_map))
+    Ok(LLSampler{sampler, config, classes, counter_map, _marker: PhantomData})
 }
 
 /// Loads both frameworks, opens the PMC database, and force-acquires counters.
