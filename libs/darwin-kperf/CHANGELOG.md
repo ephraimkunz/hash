@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 ### Added
 
 - Support for a new series of Apple Silicon chips (identifier: `as5-1`), mapping to the M5 Max series of chips. ([#8883])
+- `Sampler::pid` and `PidSampler` for counting events in another process via kperf PET sampling, returning per-thread and total counter deltas as `ProcessCounters`.
+- `darwin_kperf_sys::kdebug` module with `sysctl` bindings for the kdebug trace buffer.
+- `darwin_kperf_sys::kperf::{kperf_lightweight_pet_get, kperf_lightweight_pet_set}` for the `kperf.lightweight_pet` sysctl, which `kperf.framework` does not export.
 
 ## [0.1.0] - 2026-02-23
 

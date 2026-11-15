@@ -1,16 +1,17 @@
-use core::{array, fmt};
+use core::{array, fmt, marker::PhantomData};
 
-use darwin_kperf_sys::{kperf::KPC_MAX_COUNTERS};
+use darwin_kperf_sys::kperf::KPC_MAX_COUNTERS;
 
 use super::{
     error::{SamplerError, try_kpc},
+    ll::LLSampler,
 };
-use crate::{sampler::ll::LLSampler, utils::DropGuard};
+use crate::utils::DropGuard;
 
 /// Per-thread performance counter reader.
 ///
-/// Created via [`Sampler::thread`]. You call [`start`](Self::start) to enable
-/// counting, [`sample`](Self::sample) to read the current raw counter values,
+/// Created via [`Sampler::thread`](super::Sampler::thread). You call [`start`](Self::start) to
+/// enable counting, [`sample`](Self::sample) to read the current raw counter values,
 /// and [`stop`](Self::stop) to disable counting. A `ThreadSampler` is
 /// reusable across multiple start/stop cycles.
 ///
@@ -21,6 +22,8 @@ use crate::{sampler::ll::LLSampler, utils::DropGuard};
 pub struct ThreadSampler<'sampler, const N: usize> {
     running: bool,
     inner: LLSampler<'sampler, N>,
+
+    _marker: PhantomData<*mut ()>,
 }
 
 impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
@@ -28,6 +31,7 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
         Self {
             running: false,
             inner: sampler,
+            _marker: PhantomData,
         }
     }
 
@@ -86,8 +90,8 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
     /// Reads the current raw counter values for the configured events.
     ///
     /// Each element in the returned array corresponds to the event at the same
-    /// index in the `events` array passed to [`Sampler::thread`]. Values are
-    /// absolute hardware counter readings; compute deltas between two calls to
+    /// index in the `events` array passed to [`Sampler::thread`](super::Sampler::thread). Values
+    /// are absolute hardware counter readings; compute deltas between two calls to
     /// get per-region counts.
     ///
     /// # Errors
@@ -155,14 +159,6 @@ impl<'sampler, const N: usize> ThreadSampler<'sampler, N> {
 impl<const N: usize> Drop for ThreadSampler<'_, N> {
     fn drop(&mut self) {
         let _result = self.stop();
-
-        let kpep_vt = self.inner.sampler.kperfdata.vtable();
-        // SAFETY: config was allocated by kpep_config_create in ll_start and
-        // has not been freed. The kperfdata framework is still loaded because
-        // we hold a reference to the Sampler which owns it.
-        unsafe {
-            (kpep_vt.kpep_config_free)(self.inner.config.as_ptr());
-        }
     }
 }
 

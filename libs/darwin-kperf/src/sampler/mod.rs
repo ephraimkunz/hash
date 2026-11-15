@@ -10,21 +10,31 @@
 //!    [`stop`](ThreadSampler::stop) to toggle counting and read raw values.
 //! 4. Compute deltas between successive samples to get per-region counts.
 //!
-//! Both types clean up on drop: [`ThreadSampler`] stops counting and frees
-//! its config; [`Sampler`] restores the previous `force_all_ctrs` state and
-//! frees the database.
+//! To count events in another process instead, call [`Sampler::pid`] to create
+//! a [`PidSampler`], then [`start`](PidSampler::start), periodically
+//! [`drain`](PidSampler::drain), and [`stop`](PidSampler::stop) it to get
+//! per-thread counter deltas.
+//!
+//! All three types clean up on drop: [`ThreadSampler`] and [`PidSampler`] stop
+//! counting and free their config; [`Sampler`] restores the previous
+//! `force_all_ctrs` state and frees the database.
 
 pub(crate) mod error;
 mod ll;
-mod thread;
 mod pid;
+mod thread;
+mod trace;
 
 use core::{ffi::c_int, fmt, ptr::NonNull};
 
 use darwin_kperf_sys::kperfdata::kpep_db;
 
 use self::error::try_kpc;
-pub use self::{error::SamplerError, thread::ThreadSampler, pid::PIDSampler};
+pub use self::{
+    error::SamplerError,
+    pid::{PidSampler, ProcessCounters, ThreadCounters},
+    thread::ThreadSampler,
+};
 use crate::{
     database::Database,
     event::{Cpu, Event},
@@ -100,9 +110,9 @@ impl Sampler {
     ///
     /// # Safety
     ///
-    /// The caller must ensure no [`ThreadSampler`] created from this `Sampler`
-    /// is currently running. Releasing counters while a `ThreadSampler` is
-    /// actively counting produces undefined hardware counter behavior.
+    /// The caller must ensure no [`ThreadSampler`] or [`PidSampler`] created
+    /// from this `Sampler` is currently running. Releasing counters while one
+    /// is actively counting produces undefined hardware counter behavior.
     ///
     /// # Errors
     ///
@@ -160,7 +170,11 @@ impl Sampler {
         Ok(ThreadSampler::new(sampler))
     }
 
-    /// Creates a [`PIDSampler`] configured for the given events and pid.
+    /// Creates a [`PidSampler`] that counts the given events in process `pid`.
+    ///
+    /// Pass `-1` to sample every process on the system. Use the
+    /// `with_*` methods on the result to change the sampling period or
+    /// trace buffer size before starting it.
     ///
     /// # Errors
     ///
@@ -169,10 +183,10 @@ impl Sampler {
     pub fn pid<const N: usize>(
         &self,
         events: [Event; N],
-        pid: u64,
-    ) -> Result<PIDSampler<'_, N>, SamplerError> {
+        pid: i32,
+    ) -> Result<PidSampler<'_, N>, SamplerError> {
         let sampler = self::ll::ll_configure(self, events)?;
-        Ok(PIDSampler::new(sampler, pid))
+        Ok(PidSampler::new(sampler, pid))
     }
 }
 

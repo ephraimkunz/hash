@@ -33,24 +33,56 @@ pub enum SamplerError {
     FailedToForceAllCounters(c_int),
     /// Failed to set KPC register configuration.
     FailedToSetKpcConfig(c_int),
-    /// Failed to set KPC action count.
+    /// Failed to allocate kperf actions (`kperf.action.count`).
     FailedToSetActionCount(c_int),
-        /// Failed to set KPC timer count.
+    /// Failed to allocate kperf timers (`kperf.timer.count`).
     FailedToSetTimerCount(c_int),
-            /// Failed to set kperf action samplers.
+    /// Failed to set what a kperf action samples (`kperf.action.samplers`).
     FailedToSetSamplers(c_int),
+    /// Failed to restrict a kperf action to the target process (`kperf.action.filter_by_pid`).
+    FailedToSetPidFilter(c_int),
+    /// Failed to set the kperf timer period (`kperf.timer.period`).
     FailedToSetTimerPeriod(c_int),
-    FailedToSetTimer(c_int),
-    FailedToSetPETTimer(c_int),
-    FailedToSetLightweightPET(c_int),
-    FailedToSetSample(c_int),
-    FailedToSetTrace(c_int),
+    /// Failed to bind the kperf timer to its action (`kperf.timer.action`).
+    FailedToSetTimerAction(c_int),
+    /// Failed to select the PET (Profile Every Thread) timer (`kperf.timer.pet_timer`).
+    FailedToSetPetTimer(c_int),
+    /// Failed to enable lightweight PET mode (`kperf.lightweight_pet`).
+    FailedToSetLightweightPet(c_int),
+    /// Failed to disable lightweight PET mode (`kperf.lightweight_pet`).
+    FailedToDisableLightweightPet(c_int),
+    /// Failed to start kperf sampling (`kperf.sampling`).
+    FailedToStartSampling(c_int),
+    /// Failed to stop kperf sampling (`kperf.sampling`).
+    FailedToStopSampling(c_int),
+    /// Failed to reset kperf's actions and timers (`kperf_reset`).
+    FailedToResetKperf(c_int),
+    /// Failed to reset the kdebug trace facility (`KERN_KDREMOVE`).
+    FailedToResetTrace(c_int),
+    /// Failed to size the kdebug trace buffer (`KERN_KDSETBUF`).
     FailedToSetTraceBuffer(c_int),
+    /// Failed to allocate the kdebug trace buffer (`KERN_KDSETUP`).
     FailedToInitTraceBuffer(c_int),
+    /// Failed to install the kdebug trace filter (`KERN_KDSETREG`).
     FailedToSetTraceFilter(c_int),
+    /// Failed to enable kdebug tracing (`KERN_KDENABLE`).
     FailedToEnableTrace(c_int),
-    // Failed to set the PID filter.
-    FailedToSetPIDFilter(c_int),
+    /// Failed to disable kdebug tracing (`KERN_KDENABLE`).
+    FailedToDisableTrace(c_int),
+    /// Failed to read records from the kdebug trace buffer (`KERN_KDREADTR`).
+    FailedToReadTrace(c_int),
+    /// The kernel reported zero counters for the configured classes.
+    NoCounters,
+    /// The kdebug trace buffer overflowed before it was drained, so the
+    /// collected counter values are incomplete.
+    ///
+    /// Call [`PidSampler::drain`](super::PidSampler::drain) more often, or
+    /// increase [`PidSampler::with_buffer_entries`](super::PidSampler::with_buffer_entries).
+    TraceEventsLost,
+    /// Another [`PidSampler`](super::PidSampler) is already running.
+    ///
+    /// kperf and kdebug are system-wide, so only one can be active at a time.
+    SamplerAlreadyActive,
     /// Failed to enable counting.
     UnableToStartCounting(c_int),
     /// Failed to disable counting.
@@ -68,6 +100,7 @@ pub enum SamplerError {
 }
 
 impl fmt::Display for SamplerError {
+    #[expect(clippy::too_many_lines)]
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Load(error) => write!(fmt, "framework load failed: {error}"),
@@ -96,6 +129,71 @@ impl fmt::Display for SamplerError {
             Self::FailedToSetKpcConfig(code) => {
                 write!(fmt, "failed to set KPC config (code {code})")
             }
+            Self::FailedToSetActionCount(code) => {
+                write!(fmt, "failed to set kperf action count (code {code})")
+            }
+            Self::FailedToSetTimerCount(code) => {
+                write!(fmt, "failed to set kperf timer count (code {code})")
+            }
+            Self::FailedToSetSamplers(code) => {
+                write!(fmt, "failed to set kperf action samplers (code {code})")
+            }
+            Self::FailedToSetPidFilter(code) => {
+                write!(fmt, "failed to set kperf pid filter (code {code})")
+            }
+            Self::FailedToSetTimerPeriod(code) => {
+                write!(fmt, "failed to set kperf timer period (code {code})")
+            }
+            Self::FailedToSetTimerAction(code) => {
+                write!(fmt, "failed to set kperf timer action (code {code})")
+            }
+            Self::FailedToSetPetTimer(code) => {
+                write!(fmt, "failed to set kperf PET timer (code {code})")
+            }
+            Self::FailedToSetLightweightPet(code) => {
+                write!(fmt, "failed to enable lightweight PET (code {code})")
+            }
+            Self::FailedToDisableLightweightPet(code) => {
+                write!(fmt, "failed to disable lightweight PET (code {code})")
+            }
+            Self::FailedToStartSampling(code) => {
+                write!(fmt, "failed to start kperf sampling (code {code})")
+            }
+            Self::FailedToStopSampling(code) => {
+                write!(fmt, "failed to stop kperf sampling (code {code})")
+            }
+            Self::FailedToResetKperf(code) => {
+                write!(fmt, "failed to reset kperf (code {code})")
+            }
+            Self::FailedToResetTrace(code) => {
+                write!(fmt, "failed to reset kdebug trace (code {code})")
+            }
+            Self::FailedToSetTraceBuffer(code) => {
+                write!(fmt, "failed to set kdebug trace buffer size (code {code})")
+            }
+            Self::FailedToInitTraceBuffer(code) => write!(
+                fmt,
+                "failed to initialize kdebug trace buffer (code {code})"
+            ),
+            Self::FailedToSetTraceFilter(code) => {
+                write!(fmt, "failed to set kdebug trace filter (code {code})")
+            }
+            Self::FailedToEnableTrace(code) => {
+                write!(fmt, "failed to enable kdebug trace (code {code})")
+            }
+            Self::FailedToDisableTrace(code) => {
+                write!(fmt, "failed to disable kdebug trace (code {code})")
+            }
+            Self::FailedToReadTrace(code) => {
+                write!(fmt, "failed to read kdebug trace (code {code})")
+            }
+            Self::NoCounters => {
+                fmt.write_str("kernel reported zero counters for the configured classes")
+            }
+            Self::TraceEventsLost => {
+                fmt.write_str("kdebug trace buffer overflowed and counter samples were lost")
+            }
+            Self::SamplerAlreadyActive => fmt.write_str("another PidSampler is already running"),
             Self::UnableToStartCounting(code) => {
                 write!(fmt, "failed to start counting (code {code})")
             }
@@ -134,6 +232,28 @@ impl error::Error for SamplerError {
             | Self::MissingPrivileges
             | Self::FailedToForceAllCounters(_)
             | Self::FailedToSetKpcConfig(_)
+            | Self::FailedToSetActionCount(_)
+            | Self::FailedToSetTimerCount(_)
+            | Self::FailedToSetSamplers(_)
+            | Self::FailedToSetPidFilter(_)
+            | Self::FailedToSetTimerPeriod(_)
+            | Self::FailedToSetTimerAction(_)
+            | Self::FailedToSetPetTimer(_)
+            | Self::FailedToSetLightweightPet(_)
+            | Self::FailedToDisableLightweightPet(_)
+            | Self::FailedToStartSampling(_)
+            | Self::FailedToStopSampling(_)
+            | Self::FailedToResetKperf(_)
+            | Self::FailedToResetTrace(_)
+            | Self::FailedToSetTraceBuffer(_)
+            | Self::FailedToInitTraceBuffer(_)
+            | Self::FailedToSetTraceFilter(_)
+            | Self::FailedToEnableTrace(_)
+            | Self::FailedToDisableTrace(_)
+            | Self::FailedToReadTrace(_)
+            | Self::NoCounters
+            | Self::TraceEventsLost
+            | Self::SamplerAlreadyActive
             | Self::UnableToStartCounting(_)
             | Self::UnableToStopCounting(_)
             | Self::UnableToStartThreadCounting(_)

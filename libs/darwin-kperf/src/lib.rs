@@ -117,5 +117,5 @@ pub use darwin_kperf_sys::load::LoadError;
 
 pub use self::{
     framework::{FrameworkError, FrameworkErrorKind, KPerf, KPerfData},
-    sampler::{Sampler, SamplerError, ThreadSampler},
+    sampler::{PidSampler, ProcessCounters, Sampler, SamplerError, ThreadCounters, ThreadSampler},
 };

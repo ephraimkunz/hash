@@ -28,6 +28,12 @@
 //! up events by name or alias, and build the register configuration that KPC
 //! expects. See the [`kperfdata`] module.
 //!
+//! **kdebug** is not a framework: it is the kernel trace facility that kperf
+//! writes its timer-driven samples into. Observing counters for another
+//! process means configuring kperf to sample it and then reading the resulting
+//! trace records back. These are plain `sysctl(3)` calls into `libSystem`. See
+//! the [`kdebug`] module.
+//!
 //! # Runtime loading
 //!
 //! These frameworks are private, have no public headers, and no stable ABI, so
@@ -70,6 +76,7 @@
 
 extern crate alloc;
 
+pub mod kdebug;
 pub mod kperf;
 pub mod kperfdata;
 pub mod load;

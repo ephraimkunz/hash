@@ -1,7 +1,7 @@
 //! Low-level sampler operations.
 //!
 //! These functions bridge the safe [`Sampler`] /
-//! [`ThreadSampler`] API to the raw framework vtables. They are
+//! [`ThreadSampler`](super::ThreadSampler) API to the raw framework vtables. They are
 //! `pub(crate)` and not part of the public API.
 
 #![expect(clippy::indexing_slicing)]
@@ -10,12 +10,11 @@ use core::{
     ffi::CStr,
     mem::MaybeUninit,
     ptr::{self, NonNull},
-    marker::PhantomData,
 };
 
 use darwin_kperf_sys::{
     kperf::{KPC_CLASS_CONFIGURABLE_MASK, KPC_MAX_COUNTERS, kpc_config_t},
-    kperfdata::{kpep_db, kpep_event, kpep_config},
+    kperfdata::{kpep_config, kpep_db, kpep_event},
 };
 
 use super::{Sampler, error::SamplerError};
@@ -26,14 +25,33 @@ use crate::{
     utils::DropGuard,
 };
 
-/// A low-level sampler intended to be wrapped by a higher-level sampler returned to the 
-/// external user.
+/// Programmed counter configuration shared by [`ThreadSampler`](super::ThreadSampler) and
+/// [`PidSampler`](super::PidSampler).
+///
+/// Owns the `kpep_config` and frees it on drop.
 pub(crate) struct LLSampler<'sampler, const N: usize> {
     pub sampler: &'sampler Sampler,
     pub config: NonNull<kpep_config>,
     pub classes: u32,
     pub counter_map: [usize; N],
-    _marker: PhantomData<*mut ()>,
+}
+
+// SAFETY: the kpep_config is only dereferenced by kpep_config_free on drop,
+// which has no thread affinity, and Sampler is Sync so the reference may be
+// sent. ThreadSampler opts back out because the counters it reads are
+// per-thread.
+unsafe impl<const N: usize> Send for LLSampler<'_, N> {}
+
+impl<const N: usize> Drop for LLSampler<'_, N> {
+    fn drop(&mut self) {
+        let kpep_vt = self.sampler.kperfdata.vtable();
+        // SAFETY: config was allocated by kpep_config_create in ll_configure
+        // and has not been freed. The kperfdata framework is still loaded
+        // because we hold a reference to the Sampler which owns it.
+        unsafe {
+            (kpep_vt.kpep_config_free)(self.config.as_ptr());
+        }
+    }
 }
 
 /// Resolves an array of [`Event`]s to their CPU-specific
@@ -147,7 +165,12 @@ pub(crate) fn ll_configure<const N: usize>(
 
     let config = DropGuard::dismiss(config);
 
-    Ok(LLSampler{sampler, config, classes, counter_map, _marker: PhantomData})
+    Ok(LLSampler {
+        sampler,
+        config,
+        classes,
+        counter_map,
+    })
 }
 
 /// Loads both frameworks, opens the PMC database, and force-acquires counters.

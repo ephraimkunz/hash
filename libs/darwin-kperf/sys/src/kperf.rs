@@ -24,10 +24,13 @@
 #![expect(non_camel_case_types)]
 use core::{
     ffi::{c_char, c_int},
-    fmt,
+    fmt, ptr,
 };
 
-use crate::load::{LibraryHandle, LibrarySymbol, LoadError};
+use crate::{
+    kdebug::sysctlbyname,
+    load::{LibraryHandle, LibrarySymbol, LoadError},
+};
 
 // -----------------------------------------------------------------------------
 // Types
@@ -279,22 +282,22 @@ pub type kperf_timer_count_get = unsafe extern "C" fn(count: *mut u32) -> c_int;
 /// Sets timer number and period.
 ///
 /// Writes `kperf.timer.period` via sysctl.
-pub type kperf_timer_period_set = unsafe extern "C" fn(actionid: u32, tick: u64) -> c_int;
+pub type kperf_timer_period_set = unsafe extern "C" fn(timerid: u32, tick: u64) -> c_int;
 
 /// Gets timer number and period.
 ///
 /// Reads `kperf.timer.period` via sysctl.
-pub type kperf_timer_period_get = unsafe extern "C" fn(actionid: u32, tick: *mut u64) -> c_int;
+pub type kperf_timer_period_get = unsafe extern "C" fn(timerid: u32, tick: *mut u64) -> c_int;
 
 /// Sets timer number and action id.
 ///
 /// Writes `kperf.timer.action` via sysctl.
-pub type kperf_timer_action_set = unsafe extern "C" fn(actionid: u32, timerid: u32) -> c_int;
+pub type kperf_timer_action_set = unsafe extern "C" fn(timerid: u32, actionid: u32) -> c_int;
 
 /// Gets timer number and action id.
 ///
 /// Reads `kperf.timer.action` via sysctl.
-pub type kperf_timer_action_get = unsafe extern "C" fn(actionid: u32, timerid: *mut u32) -> c_int;
+pub type kperf_timer_action_get = unsafe extern "C" fn(timerid: u32, actionid: *mut u32) -> c_int;
 
 /// Sets which timer ID does PET (Profile Every Thread).
 ///
@@ -529,5 +532,45 @@ impl VTable {
             kperf_ticks_to_ns: load_sym!(handle, kperf_ticks_to_ns, c"kperf_ticks_to_ns"),
             kperf_tick_frequency: load_sym!(handle, kperf_tick_frequency, c"kperf_tick_frequency"),
         })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// kperf sysctls not exported by kperf.framework
+// -----------------------------------------------------------------------------
+
+/// Reads whether lightweight PET (Profile Every Thread) is enabled
+/// (`kperf.lightweight_pet`).
+///
+/// In lightweight mode, PET samples a thread when it is switched on-core rather
+/// than by stopping every thread on each timer fire.
+#[must_use]
+pub fn kperf_lightweight_pet_get(enabled: &mut u32) -> c_int {
+    let mut size = size_of::<u32>();
+    // SAFETY: name is NUL-terminated; enabled is a valid u32 matching size.
+    unsafe {
+        sysctlbyname(
+            c"kperf.lightweight_pet".as_ptr(),
+            ptr::from_mut(enabled).cast(),
+            &raw mut size,
+            ptr::null_mut(),
+            0,
+        )
+    }
+}
+
+/// Enables or disables lightweight PET mode (`kperf.lightweight_pet`).
+#[must_use]
+pub fn kperf_lightweight_pet_set(enabled: u32) -> c_int {
+    let mut enabled = enabled;
+    // SAFETY: name is NUL-terminated; enabled is a valid u32 matching newlen.
+    unsafe {
+        sysctlbyname(
+            c"kperf.lightweight_pet".as_ptr(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            (&raw mut enabled).cast(),
+            size_of::<u32>(),
+        )
     }
 }
